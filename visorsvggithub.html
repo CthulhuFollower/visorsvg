@@ -16,28 +16,28 @@
       display:flex;gap:.5rem;align-items:center;
     }
     select {font:inherit;padding:.25rem .5rem;}
-    #dropmsg {position:fixed;bottom:1rem;left:1rem;opacity:.5;font:12px system-ui;}
+    #msg {position:fixed;bottom:1rem;left:1rem;opacity:.6;font:12px system-ui;}
   </style>
 </head>
 <body>
   <div id="ui">
     <label for="fileSelect">SVG:</label>
-    <select id="fileSelect"><option>Cargando...</option></select>
+    <select id="fileSelect"><option>Cargando…</option></select>
   </div>
   <div id="stage"></div>
-  <div id="dropmsg">Zoom: rueda/pinch · Pan: arrastrar · Doble clic: reset</div>
+  <div id="msg">Zoom: rueda/pinch · Pan: arrastrar · Doble clic: reset</div>
 
   <script>
-    // 🔧 CONFIGURA ESTO:
-    const GITHUB_USER = "CthulhuFollower";      // ← tu usuario
-    const GITHUB_REPO = "visorsvg";      // ← tu repo
-    const SVG_PATH = "svg";             // carpeta donde están los SVG
-    const BRANCH = "main";              // o "master", según tu repo
+    // ✅ TU REPO
+    const GITHUB_USER = "CthulhuFollower";
+    const GITHUB_REPO = "visorsvg";
+    const SVG_PATH    = "svg";      // carpeta con tus .svg
+    const BRANCH      = "main";
 
     const API = `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/contents/${SVG_PATH}?ref=${BRANCH}`;
     const CDN = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/${BRANCH}/${SVG_PATH}/`;
 
-    const stage = document.getElementById('stage');
+    const stage  = document.getElementById('stage');
     const select = document.getElementById('fileSelect');
 
     let svg, initialVB, currentVB;
@@ -54,7 +54,8 @@
     }
 
     async function loadInlineSVG(url){
-      const res = await fetch(url);
+      const res = await fetch(url + `?cacheBust=${Date.now()}`);
+      if(!res.ok) throw new Error(`HTTP ${res.status} al cargar SVG`);
       const text = await res.text();
       stage.innerHTML = text.trim();
       svg = stage.querySelector('svg');
@@ -65,44 +66,44 @@
       wireInteractions();
     }
 
-    // ---------- Zoom y Pan (viewBox) ----------
+    // --- Zoom y pan (viewBox) ---
     function zoomBy(factor, aroundCenter=true, clientX=null, clientY=null){
       if(!svg) return;
       const [x,y,w,h] = currentVB;
       const initScale = initialVB[2]/w;
-      const nextScale = Math.max(MIN_ZOOM,Math.min(MAX_ZOOM,initScale*factor));
+      const nextScale = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, initScale*factor));
       const realFactor = nextScale/initScale;
 
       let cx,cy;
-      if(aroundCenter||clientX==null){cx=x+w/2;cy=y+h/2;}
+      if(aroundCenter || clientX==null){ cx = x+w/2; cy = y+h/2; }
       else{
-        const pt=svg.createSVGPoint();pt.x=clientX;pt.y=clientY;
-        const sp=pt.matrixTransform(svg.getScreenCTM().inverse());
-        cx=sp.x;cy=sp.y;
+        const pt = svg.createSVGPoint(); pt.x=clientX; pt.y=clientY;
+        const sp = pt.matrixTransform(svg.getScreenCTM().inverse());
+        cx = sp.x; cy = sp.y;
       }
 
-      const newW=w/realFactor,newH=h/realFactor;
-      const nx=cx-((cx-x)/realFactor);
-      const ny=cy-((cy-y)/realFactor);
-      currentVB=[nx,ny,newW,newH];
+      const newW = w/realFactor, newH = h/realFactor;
+      const nx = cx - ((cx-x)/realFactor);
+      const ny = cy - ((cy-y)/realFactor);
+      currentVB = [nx,ny,newW,newH];
       setVB(svg,currentVB);
     }
-    function resetZoom(){currentVB=[...initialVB];setVB(svg,currentVB);}
+    function resetZoom(){ currentVB = [...initialVB]; setVB(svg,currentVB); }
 
     function wireInteractions(){
-      stage.onwheel = e=>{
+      stage.onwheel = e => {
         e.preventDefault();
         const step=1.12;
-        const factor=(e.deltaY<0)?step:1/step;
-        zoomBy(factor,true,e.clientX,e.clientY);
+        const factor = (e.deltaY<0) ? step : 1/step;
+        zoomBy(factor, true, e.clientX, e.clientY);
       };
-      stage.ondblclick=()=>resetZoom();
+      stage.ondblclick = () => resetZoom();
 
-      let panning=false,last=null;
-      stage.onmousedown=e=>{panning=true;last={x:e.clientX,y:e.clientY};};
-      window.onmouseup=()=>panning=false;
-      window.onmousemove=e=>{
-        if(!panning||!svg) return;
+      let panning=false, last=null;
+      stage.onmousedown = e => { panning=true; last={x:e.clientX, y:e.clientY}; };
+      window.onmouseup = () => panning=false;
+      window.onmousemove = e => {
+        if(!panning || !svg) return;
         const dx=e.clientX-last.x, dy=e.clientY-last.y;
         last={x:e.clientX,y:e.clientY};
         const m=svg.getScreenCTM().inverse();
@@ -115,12 +116,24 @@
       };
     }
 
-    // ---------- Cargar lista de archivos del repo ----------
+    // --- Poblar lista desde la API de GitHub ---
     async function populateList(){
       try{
         const res = await fetch(API);
         const data = await res.json();
-        const files = data.filter(f => f.name.endsWith(".svg"));
+
+        if(!Array.isArray(data)){
+          console.error('Respuesta API:', data);
+          select.innerHTML = "<option>Error: ruta o rama inválida</option>";
+          return;
+        }
+
+        const files = data.filter(f => f.type === "file" && f.name.toLowerCase().endsWith(".svg"));
+        if(files.length === 0){
+          select.innerHTML = "<option>No hay SVG en /svg</option>";
+          return;
+        }
+
         select.innerHTML = "";
         files.forEach(f=>{
           const opt=document.createElement("option");
@@ -128,16 +141,16 @@
           opt.textContent=f.name;
           select.appendChild(opt);
         });
-        if(files.length>0){
-          loadInlineSVG(CDN + files[0]);
-        }
+
+        // Carga inicial
+        await loadInlineSVG(CDN + files[0].name);
       }catch(err){
-        select.innerHTML = "<option>Error al cargar lista</option>";
         console.error(err);
+        select.innerHTML = "<option>Error al cargar la lista</option>";
       }
     }
 
-    select.addEventListener("change",()=>{
+    select.addEventListener("change", ()=>{
       const file = select.value;
       if(file) loadInlineSVG(CDN + file);
     });
@@ -146,5 +159,3 @@
   </script>
 </body>
 </html>
-
-
